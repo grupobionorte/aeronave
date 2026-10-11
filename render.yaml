@@ -1,0 +1,22 @@
+# Blueprint da Aeronave. O banco é um arquivo SQLite, então o serviço precisa
+# de disco persistente (disco só existe em planos pagos, "starter" ou acima).
+# Sem o disco, os dados são apagados a cada deploy.
+services:
+  - type: web
+    name: aeronave
+    runtime: node
+    plan: starter
+    buildCommand: echo "sem dependencias"
+    startCommand: node server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 24
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data
+    disk:
+      name: aeronave-dados
+      mountPath: /var/data
+      sizeGB: 1
