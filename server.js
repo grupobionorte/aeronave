@@ -283,6 +283,34 @@ function realizarManutencao(id, b) {
 }
 
 // ---------- HTTP ----------
+// ---------- backup / restauração ----------
+const TABELAS_BACKUP = ['aeronave', 'usuarios', 'voos', 'despesas', 'reservas', 'manutencao_itens', 'manutencao_eventos']; // pais antes dos filhos
+const colunas = (t) => all(`PRAGMA table_info(${t})`).map((c) => c.name);
+
+function exportarBackup() {
+  return { app: 'aeronave', versao: 1, gerado_em: new Date().toISOString(), tabelas: Object.fromEntries(TABELAS_BACKUP.map((t) => [t, all(`SELECT * FROM ${t}`)])) };
+}
+
+function restaurarBackup(b) {
+  if (!b || b.app !== 'aeronave' || b.versao !== 1 || typeof b.tabelas !== 'object') throw bad('Arquivo de backup inválido');
+  for (const t of TABELAS_BACKUP) if (!Array.isArray(b.tabelas[t])) throw bad(`Backup sem a tabela ${t}`);
+  if (!b.tabelas.usuarios.length) throw bad('Backup sem nenhum usuário');
+  tx(() => {
+    for (const t of [...TABELAS_BACKUP].reverse()) run(`DELETE FROM ${t}`);
+    run('DELETE FROM sessoes');
+    for (const t of TABELAS_BACKUP) {
+      const validas = colunas(t);
+      for (const row of b.tabelas[t]) {
+        const cols = Object.keys(row);
+        if (!cols.length || cols.some((c) => !validas.includes(c)) || Object.values(row).some((v) => v !== null && !['string', 'number'].includes(typeof v))) throw bad(`Linha inválida em ${t}`);
+        run(`INSERT INTO ${t} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`, ...Object.values(row));
+      }
+    }
+    const fk = all('PRAGMA foreign_key_check');
+    if (fk.length) throw bad('Backup com referências quebradas');
+  });
+}
+
 const sessaoDe = (req) => {
   const m = /(?:^|;\s*)sid=([a-f0-9]{64})/.exec(req.headers.cookie || '');
   if (!m) return null;
@@ -294,7 +322,7 @@ const cookie = (req, valor, maxAge) => {
 };
 const lerBody = (req) => new Promise((res, rej) => {
   let s = '';
-  req.on('data', (c) => { s += c; if (s.length > 1e6) { rej(new HttpError(413, 'Corpo muito grande')); req.destroy(); } });
+  req.on('data', (c) => { s += c; if (s.length > 5e6) { rej(new HttpError(413, 'Corpo muito grande')); req.destroy(); } });
   req.on('end', () => { try { res(s ? JSON.parse(s) : {}); } catch { rej(bad('JSON inválido')); } });
   req.on('error', rej);
 });
@@ -321,6 +349,10 @@ async function api(req, res, url) {
     });
     return enviar(res, 201, { ok: true });
   }
+  if (rec === 'restaurar' && m === 'POST' && semUsuarios) { // sistema zerado: permite restaurar sem login
+    restaurarBackup(body);
+    return enviar(res, 200, { ok: true });
+  }
   if (rec === 'login' && m === 'POST') {
     limitaLogin(req.socket.remoteAddress || '');
     const u = get('SELECT * FROM usuarios WHERE email = ?', String(body.email || '').toLowerCase());
@@ -339,6 +371,14 @@ async function api(req, res, url) {
     const t = /sid=([a-f0-9]{64})/.exec(req.headers.cookie || '')?.[1];
     if (t) run('DELETE FROM sessoes WHERE token = ?', t);
     return enviar(res, 200, { ok: true }, { 'Set-Cookie': cookie(req, '', 0) });
+  }
+  if (rec === 'backup' && m === 'GET') {
+    const nome = `aeronave-backup-${hoje()}.json`;
+    return enviar(res, 200, exportarBackup(), { 'Content-Disposition': `attachment; filename="${nome}"` });
+  }
+  if (rec === 'restaurar' && m === 'POST') {
+    restaurarBackup(body);
+    return enviar(res, 200, { ok: true }, { 'Set-Cookie': cookie(req, '', 0) }); // sessões antigas deixam de valer
   }
   if (rec === 'dashboard' && m === 'GET') return enviar(res, 200, dashboard());
   if (rec === 'rateio' && m === 'GET') return enviar(res, 200, rateio(url.searchParams.get('mes') || hoje().slice(0, 7)));

@@ -51,6 +51,22 @@ function form(titulo, campos, valores, onSubmit, extra = '') {
 const confirmar = (msg) => window.confirm(msg);
 const acao = async (fn) => { try { await fn(); render(); } catch (e) { alert(e.message); } };
 
+// ---------- backup ----------
+async function restaurarArquivo(arq, depois) {
+  if (!arq) return;
+  try {
+    const txt = await arq.text();
+    JSON.parse(txt);
+    if (state.user && !confirmar('Isso SUBSTITUI todos os dados atuais pelos do arquivo e exige novo login. Continuar?')) return;
+    const r = await fetch('/api/restaurar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: txt });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.erro || 'Erro ' + r.status);
+    state.user = null;
+    alert('Backup restaurado. Entre com o e-mail e a senha que existiam no backup.');
+    depois();
+  } catch (e) { alert('Não foi possível restaurar: ' + e.message); }
+}
+
 // ---------- autenticação ----------
 function telaAuth(setup) {
   $app.innerHTML = `<div class="login card"><h2>${setup ? 'Configuração inicial' : 'Entrar'}</h2>
@@ -62,7 +78,8 @@ function telaAuth(setup) {
     <label>E-mail<input name="email" type="email" required autocomplete="username"></label>
     <label>Senha${setup ? ' (mín. 8 caracteres)' : ''}<input name="senha" type="password" required minlength="${setup ? 8 : 1}" autocomplete="${setup ? 'new-password' : 'current-password'}"></label>
     <div class="erro"></div><button class="pri" style="width:100%">${setup ? 'Criar' : 'Entrar'}</button>
-  </form></div>`;
+  </form>${setup ? `<hr><label>Já tem um backup? Restaurar a partir do arquivo<input type="file" id="rest" accept=".json,application/json"></label>` : ''}</div>`;
+  if (setup) document.getElementById('rest').onchange = (e) => restaurarArquivo(e.target.files[0], () => boot());
   $app.querySelector('form').onsubmit = async (e) => {
     e.preventDefault();
     const d = Object.fromEntries(new FormData(e.target));
@@ -205,13 +222,18 @@ async function vConfig() {
   window.editAero = () => form('Aeronave', [{ n: 'matricula', l: 'Matrícula' }, { n: 'modelo', l: 'Modelo' }, { n: 'horas_iniciais', l: 'Horímetro inicial (h)', t: 'number', step: '0.1' }], state.aeronave, (d) => api('PUT', 'aeronave', d));
   window.novoSocio = () => form('Novo sócio', [{ n: 'nome', l: 'Nome', req: 1 }, { n: 'email', l: 'E-mail', t: 'email', req: 1 }, { n: 'senha', l: 'Senha inicial (mín. 8)', t: 'password', req: 1 }, { n: 'cota_pct', l: 'Cota (%)', t: 'number', step: '0.01' }], { cota_pct: 50 }, (d) => api('POST', 'usuarios', d));
   window.editSocio = (id) => form('Editar sócio', [{ n: 'nome', l: 'Nome', req: 1 }, { n: 'cota_pct', l: 'Cota (%)', t: 'number', step: '0.01', req: 1 }, ...(id === state.user.id ? [{ n: 'senha', l: 'Nova senha (deixe vazio para manter)', t: 'password' }] : [])], us.find((u) => u.id === id), (d) => api('PUT', 'usuarios/' + id, d));
+  window.restaurar = (input) => restaurarArquivo(input.files[0], () => boot());
   const soma = us.reduce((a, u) => a + u.cota_pct, 0);
   return `<h2>Configurações</h2>
   <div class="card"><div class="row between"><h3>Aeronave</h3><button class="sm" onclick="editAero()">Editar</button></div>
     <div>${esc(state.aeronave.matricula)} · ${esc(state.aeronave.modelo)}</div><div class="mut">Horímetro inicial: ${hh(state.aeronave.horas_iniciais)} h</div></div>
   <div class="card"><div class="row between"><h3>Sócios</h3><button class="sm" onclick="novoSocio()">+ Adicionar</button></div>
   <table>${us.map((u) => `<tr><td>${esc(u.nome)}<div class="mut">${esc(u.email)}</div></td><td class="n">${u.cota_pct}%</td><td class="n"><button class="sm" onclick="editSocio(${u.id})">Editar</button></td></tr>`).join('')}</table>
-  ${Math.abs(soma - 100) > 0.01 ? `<p class="neg">As cotas somam ${soma}%, deveriam somar 100%.</p>` : ''}</div>`;
+  ${Math.abs(soma - 100) > 0.01 ? `<p class="neg">As cotas somam ${soma}%, deveriam somar 100%.</p>` : ''}</div>
+  <div class="card"><h3>Backup</h3>
+    <p class="mut">Baixe uma cópia dos dados com frequência (após cada voo ou despesa). O arquivo contém os dados dos sócios e as senhas criptografadas: guarde-o em local privado.</p>
+    <div class="row"><a class="btn pri" href="/api/backup" download>Baixar backup</a></div>
+    <label style="margin-top:12px">Restaurar a partir de um arquivo (substitui tudo)<input type="file" accept=".json,application/json" onchange="restaurar(this)"></label></div>`;
 }
 
 const rotas = { painel: ['Painel', vPainel], voos: ['Voos', vVoos], reservas: ['Reservas', vReservas], manutencao: ['Manutenção', vManutencao], financeiro: ['Financeiro', vFinanceiro], config: ['Config.', vConfig] };

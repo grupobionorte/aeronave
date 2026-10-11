@@ -29,8 +29,9 @@ th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--brd)
 th { color: var(--mut); font-size: 12px; text-transform: uppercase; }
 td.n, th.n { text-align: right; white-space: nowrap; }
 .scroll { overflow-x: auto; }
+a.btn { text-decoration: none; display: inline-block; }
 button, .btn { font: inherit; padding: 7px 12px; border-radius: 7px; border: 1px solid var(--brd); background: var(--card); color: var(--txt); cursor: pointer; }
-button.pri { background: var(--pri); border-color: var(--pri); color: #fff; }
+button.pri, a.btn.pri { background: var(--pri); border-color: var(--pri); color: #fff; }
 button.sm { padding: 3px 8px; font-size: 13px; }
 button.del { color: var(--err); }
 input, select, textarea { font: inherit; width: 100%; padding: 8px; border-radius: 7px; border: 1px solid var(--brd); background: var(--bg); color: var(--txt); }
